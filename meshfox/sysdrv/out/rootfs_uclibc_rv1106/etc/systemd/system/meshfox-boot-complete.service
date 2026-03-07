@@ -1,0 +1,14 @@
+[Unit]
+Description=MeshFox Boot Complete
+DefaultDependencies=no
+After=rc-local.service
+
+[Service]
+ExecStart=/usr/local/bin/meshfox-boot-complete.sh
+Type=oneshot
+Restart=no
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=default.target

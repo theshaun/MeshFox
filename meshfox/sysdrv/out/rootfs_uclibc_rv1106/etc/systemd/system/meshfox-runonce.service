@@ -1,0 +1,16 @@
+[Unit]
+Description=MeshFox First Boot
+After=rc-local.service
+Before=serial-getty@ttyFIQ0.service
+DefaultDependencies=no
+
+[Service]
+ExecStart=/usr/local/bin/meshfox-runonce.sh
+Type=oneshot
+Restart=no
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=default.target
+

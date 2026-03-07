@@ -1,0 +1,232 @@
+echo "Inside chroot environment..."
+echo "tmpfs /run tmpfs rw,nodev,nosuid,size=32M 0 0" | tee -a /etc/fstab
+
+echo "Removing netdevice rules..."
+ln -s /dev/null /etc/udev/rules.d/80-net-setup-link.rules
+
+echo "Setting up kernel modules..."
+touch /lib/modules/5.10.160/modules.order
+touch /lib/modules/5.10.160/modules.builtin
+depmod -a 5.10.160
+if [[ $? -eq 2 ]]; then echo "Error, step failed..."; fi
+
+echo "Setting localtime to UTC..."
+rm /etc/localtime
+ln -sf /usr/share/zoneinfo/UTC /etc/localtime
+
+echo "Installing packages..."
+apt update
+DEBIAN_FRONTEND=noninteractive apt install -y --option Dpkg::Options::="--force-confold" linux-firmware wireless-tools git python3.10-venv libyaml-cpp-dev libbluetooth-dev openssl libssl-dev libulfius-dev evtest screen fonts-noto-color-emoji ninja-build chrony software-properties-common python-is-python3 python3.10-venv lsof spi-tools samba vim mtd-utils jq rsync
+if [[ $? -eq 2 ]]; then echo "Error, step failed..."; fi
+DEBIAN_FRONTEND=noninteractive apt upgrade -y --option Dpkg::Options::="--force-confold"
+
+echo "Installing dependencies for pyMC Repeater"
+DEBIAN_FRONTEND=noninteractive apt-get install -y libffi-dev jq python3-pip python3-rrdtool wget swig build-essential python3-dev
+python3 -m pip install --upgrade pip
+python3 -m pip install setuptools_scm
+
+PYMC_SCRIPT_DIR="/tmp/pymc_repeater_install"
+PYMC_INSTALL_DIR="/opt/pymc_repeater"
+PYMC_CONFIG_DIR="/etc/pymc_repeater"
+PYMC_LOG_DIR="/var/log/pymc_repeater"
+PYMC_SERVICE_USER="repeater"
+PYMC_SERVICE_NAME="pymc-repeater"
+
+echo "# Cleaning old pyMC Repeater installation files..."
+# Remove old repeater directory to ensure clean install
+rm -rf "$PYMC_INSTALL_DIR" 2>/dev/null || true
+rm -rf "$PYMC_SCRIPT_DIR" 2>/dev/null || true
+rm -rf "$PYMC_CONFIG_DIR" 2>/dev/null || true
+
+echo "# Installing pyMC Repeater"
+git clone --single-branch --branch feat/newRadios https://github.com/rightup/pyMC_Repeater.git /tmp/pymc_repeater_install
+cd /tmp/pymc_repeater_install
+
+echo "# Creating service user..."
+useradd --system --home /var/lib/pymc_repeater --shell /sbin/nologin "$PYMC_SERVICE_USER"
+
+echo "# Adding user to hardware groups..."
+usermod -a -G gpio,i2c,spi "$PYMC_SERVICE_USER" 2>/dev/null || true
+usermod -a -G dialout "$PYMC_SERVICE_USER" 2>/dev/null || true
+
+echo "# Creating directories..."
+mkdir -p "$PYMC_INSTALL_DIR" "$PYMC_CONFIG_DIR" "$PYMC_LOG_DIR" /var/lib/pymc_repeater
+
+# Install mikefarah yq v4 if not already installed
+if ! command -v yq &> /dev/null || [[ "$(yq --version 2>&1)" != *"mikefarah/yq"* ]]; then
+    wget -qO /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/v4.40.5/yq_linux_arm" && chmod +x /usr/local/bin/yq
+fi
+
+echo "# Generating version file..."
+cd "$SCRIPT_DIR"
+# Generate version file using setuptools_scm before copying
+if [ -d .git ]; then
+    git fetch --tags 2>/dev/null || true
+    # Write the version file that will be copied
+    GENERATED_VERSION=$(python3 -m setuptools_scm 2>&1 || echo "unknown (setuptools_scm not available)")
+    python3 -c "from setuptools_scm import get_version; get_version(write_to='repeater/_version.py')" 2>&1 || echo "    Warning: Could not generate _version.py file"
+    echo "    Generated version: $GENERATED_VERSION"
+fi
+
+echo "# Installing files..."
+cp -r "$PYMC_SCRIPT_DIR/repeater" "$PYMC_INSTALL_DIR/"
+cp "$PYMC_SCRIPT_DIR/pyproject.toml" "$PYMC_INSTALL_DIR/"
+cp "$PYMC_SCRIPT_DIR/README.md" "$PYMC_INSTALL_DIR/"
+cp "$PYMC_SCRIPT_DIR/manage.sh" "$PYMC_INSTALL_DIR/" 2>/dev/null || true
+cp "$PYMC_SCRIPT_DIR/pymc-repeater.service" "$PYMC_INSTALL_DIR/" 2>/dev/null || true
+cp "$PYMC_SCRIPT_DIR/radio-settings.json" /var/lib/pymc_repeater/ 2>/dev/null || true
+cp "$PYMC_SCRIPT_DIR/radio-presets.json" /var/lib/pymc_repeater/ 2>/dev/null || true
+
+echo "# Installing configuration..."
+cp "$PYMC_SCRIPT_DIR/config.yaml.example" "$PYMC_CONFIG_DIR/config.yaml.example"
+if [ ! -f "$PYMC_CONFIG_DIR/config.yaml" ]; then
+    cp "$PYMC_SCRIPT_DIR/config.yaml.example" "$PYMC_CONFIG_DIR/config.yaml"
+fi
+
+echo "# Setting default configuration to femtofox..."
+PYMC_CONFIG_FILE="$PYMC_CONFIG_DIR/config.yaml"
+
+sed -i "s/^  cs_pin:.*/  cs_pin: 16/" "$PYMC_CONFIG_FILE"
+sed -i "s/^  reset_pin:.*/  reset_pin: 25/" "$PYMC_CONFIG_FILE"
+sed -i "s/^  busy_pin:.*/  busy_pin: 22/" "$PYMC_CONFIG_FILE"
+sed -i "s/^  irq_pin:.*/  irq_pin: 23/" "$PYMC_CONFIG_FILE"
+sed -i "s/^  rxen_pin:.*/  rxen_pin: 24/" "$PYMC_CONFIG_FILE"
+sed -i "/^  cs_pin:.*/a\\  gpio_chip: 1" "$PYMC_CONFIG_FILE"
+sed -i "/^  gpio_chip:.*/a\\  use_gpiod_backend: true" "$PYMC_CONFIG_FILE"
+
+# Hard code low power just incase its a e22 900m33s and we don't want to fry it first load...
+sed -i "s/^  tx_power:.*/  tx_power: 1/" "$PYMC_CONFIG_FILE"
+
+echo "# Installing systemd service..."
+cp "$PYMC_SCRIPT_DIR/pymc-repeater.service" /etc/systemd/system/
+systemctl daemon-reload
+
+echo "# Setting permissions..."
+chown -R "$PYMC_SERVICE_USER:$PYMC_SERVICE_USER" "$PYMC_INSTALL_DIR" "$PYMC_CONFIG_DIR" "$PYMC_LOG_DIR" /var/lib/pymc_repeater
+chmod 750 "$PYMC_CONFIG_DIR" "$PYMC_LOG_DIR" /var/lib/pymc_repeater
+# Ensure the service user can create subdirectories in their home directory
+chmod 755 /var/lib/pymc_repeater
+# Pre-create the .config directory that the service will need
+mkdir -p /var/lib/pymc_repeater/.config/pymc_repeater
+chown -R "$PYMC_SERVICE_USER:$PYMC_SERVICE_USER" /var/lib/pymc_repeater/.config
+
+# Configure polkit for passwordless service restart
+mkdir -p /etc/polkit-1/localauthority/50-local.d
+cat > /etc/polkit-1/localauthority/50-local.d/10-pymc-repeater.pkla <<'EOF'
+[Allow repeater to restart pymc-repeater service]
+Identity=unix-user:repeater
+Action=org.freedesktop.systemd1.manage-units
+ResultAny=yes
+ResultInactive=yes
+ResultActive=yes
+EOF
+chmod 0644 /etc/polkit-1/localauthority/50-local.d/10-pymc-repeater.pkla
+
+echo "# Installing more Python dependencies..."
+
+cd "$PYMC_SCRIPT_DIR"
+
+# Suppress pip root user warnings
+export PIP_ROOT_USER_ACTION=ignore
+
+# Calculate version from git for setuptools_scm
+if [ -d .git ]; then
+    git fetch --tags 2>/dev/null || true
+    GIT_VERSION=$(python3 -m setuptools_scm 2>/dev/null || echo "1.0.5")
+    export SETUPTOOLS_SCM_PRETEND_VERSION="$GIT_VERSION"
+    echo "Installing version: $GIT_VERSION"
+else
+    export SETUPTOOLS_SCM_PRETEND_VERSION="1.0.5"
+fi
+
+python3 -m pip install --break-system-packages --force-reinstall --no-cache-dir .
+
+echo "# Preinstalling pymc_console..."
+git clone https://github.com/dmduran12/pymc_console-dist.git /tmp/pymc_console_install
+cd /tmp/pymc_console_install
+
+PYMC_C_TMP_FILE="/tmp/pymc-ui.tar.gz"
+PYMC_C_CONSOLE_DIR="/opt/pymc_console"
+PYMC_C_UI_DIR="$PYMC_C_CONSOLE_DIR/web/html"
+PYMC_C_UI_REPO="dmduran12/pymc_console-dist"
+PYMC_C_UI_RELEASE_URL="https://github.com/${PYMC_C_UI_REPO}/releases"
+
+echo "# Downloading dashboard..."
+curl -fsSL -o "$PYMC_C_TMP_FILE" "${PYMC_C_UI_RELEASE_URL}/latest/download/pymc-ui-latest.tar.gz"
+
+echo "# Rollin out dashboard..."
+mkdir -p "$PYMC_C_UI_DIR"
+tar -xzf "$PYMC_C_TMP_FILE" -C "$PYMC_C_UI_DIR"
+chown -R repeater:repeater "$PYMC_C_CONSOLE_DIR" 2>/dev/null || true
+
+if [[ $? -eq 2 ]]; then echo "Error, step failed..."; fi
+
+echo "Setting MOTD..."
+mv /etc/update-motd.d/10-help-text /etc/update-motd.d/10-help-text.bak
+mv /etc/update-motd.d/60-unminimize /etc/update-motd.d/60-unminimize.bak
+
+echo "Setting hostname to meshfox..."
+echo "meshfox" | tee /etc/hostname > /dev/null
+
+echo "Configuring autostart of systemd services..."
+systemctl enable meshfox-runonce.service
+systemctl enable meshfox-boot-complete.service
+
+systemctl disable apt-daily.timer
+systemctl disable apt-daily-upgrade.timer
+systemctl mask apt-daily.service # try prevent daily updates
+systemctl mask apt-daily-upgrade.service # try prevent daily updates
+systemctl disable unattended-upgrades
+systemctl disable smbd nmbd # samba services, can be enabled via menu
+systemctl disable NetworkManager
+systemctl disable NetworkManager-dispatcher
+systemctl disable NetworkManager-wait-online
+systemctl disable vsftpd.service
+systemctl disable ModemManager.service
+systemctl disable getty@tty1.service
+systemctl disable acpid
+systemctl disable acpid.socket
+systemctl disable acpid.service
+systemctl mask alsa-restore.service
+systemctl disable alsa-restore.service
+systemctl disable alsa-state.service
+systemctl mask sound.target
+systemctl disable sound.target
+systemctl disable veritysetup.target
+systemctl disable systemd-pstore.service
+
+echo "Adding meshfox and pico users/groups..."
+groupmod -n meshfox pico
+usermod -l meshfox pico
+usermod -aG sudo,input meshfox
+echo "meshfox ALL=(ALL:ALL) ALL" | tee /etc/sudoers.d/meshfox > /dev/null
+chmod 440 /etc/sudoers.d/meshfox
+
+find / -group pico -exec chgrp meshfox {} \; 2>/dev/null
+find / -user pico -exec chown meshfox {} \; 2>/dev/null
+usermod -d /home/meshfox -m meshfox
+ls -ld /home/meshfox
+echo 'meshfox:meshfox' | chpasswd
+sudo chage -d 0 meshfox
+usermod -a -G tty meshfox
+usermod -a -G dialout meshfox
+
+# Ensure libgcc_s.so and libc_nonshared.a exist
+mkdir -p /usr/lib/gcc/arm-linux-gnueabihf/11/
+ln -sf /usr/lib/arm-linux-gnueabihf/libgcc_s.so.1 /usr/lib/gcc/arm-linux-gnueabihf/11/libgcc_s.so
+ln -sf /usr/lib/arm-linux-gnueabihf/libgcc_s.so.1 /lib/libgcc_s.so.1
+ln -sf /usr/lib/gcc/arm-linux-gnueabihf/11/libgcc_s.so /usr/lib/libgcc.so
+
+# Add library paths
+echo "/usr/lib/gcc/arm-linux-gnueabihf/11" | tee -a /etc/ld.so.conf.d/gcc.conf
+ldconfig
+
+# Back up libc_nonshared.a because build.sh removes it
+cp /usr/lib/arm-linux-gnueabihf/libc_nonshared.a /usr/lib/arm-linux-gnueabihf/libc_nonshared.a.keep
+
+chmod +x /usr/local/bin/*
+
+echo "Cleaning up chroot..."
+rm -rf /tmp/* && rm -rf /var/tmp/* && find /var/log -type f -exec truncate -s 0 {} + && : > /root/.bash_history && history -c
+
+exit 0

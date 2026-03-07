@@ -1,0 +1,104 @@
+#!/bin/bash
+help=$(cat <<EOF
+Options are:
+-h             This message
+-a             About MeshFox
+-f             MeshFox short-form license
+-F             MeshFox long-form license
+-p             pyMC_Repeater licensing
+-l             Luckfox license
+-u             Ubuntu licenses
+EOF
+)
+
+pause() {
+  echo -e "\nPress any key to continue..."
+  read -n 1 -s -r
+}
+
+meshfox_short_license="\
+MeshFox is an Ubuntu based distribution for Luckfox boards with LoRa radio, which is licensed GNU GPLv3. Summary: you may use, modify and distribute (including for commercial purposes) MeshFox, but must give attribution to MeshFox and distribute this license with your project. Any modified version must remain open source.\n\
+\n\
+Based on Foxbuntu by Femtofox\n\
+\n\
+View the long licenses for more information.\n\
+"
+pymc_repeater_license="\
+The pyMC_Repeater software is licensed MIT.\n\
+\n\
+pyMC_Repeater is a python MeshCore repeater built on top of pyMC_core, based on MeshCore.
+\n\
+For more information about pyMC_Repeater, visit https://github.com/rightup/pyMC_Repeater\
+"
+
+luckfox_license="Luckfox and Luckfox Pico Mini are property of Luckfox Technology. MeshFox does not represent Luckfox Technology in any way, shape or form. Visit their website at https://www.luckfox.com/."
+
+ubuntu_license="Ubuntu is a trademark of Canonical. MeshFox does not represent Ubuntu or Canonical in any way, shape or form. Find Ubuntu's license information on their site, https://ubuntu.com/legal. Licenses are also available in \`/usr/share/common-licenses\`."
+
+# Parse options
+while getopts ":hafFplu" opt; do
+  case ${opt} in
+    h) # Option -h (help)
+      echo -e "$help"
+      ;;
+    a)  # Option -a (about)
+      echo "MeshFox is an Ubuntu based distribution for Luckfox boards with LoRa radio.\n\
+\n\
+Based on Foxbuntu by Femtofox
+\n\
+          ▏▎▎                       ▏▎▏\n\
+          ▂██▄▋▏                  ▎▁▇█▇\n\
+          ▂██▄█▆▊               ▎▂██▆█▇\n\
+          ▂███▇▁▅▆▋          ▏▍▃▇▊▃███▇\n\
+          ▂▃███▆▎▂█▆▊       ▍▃█▃▍▃████▇\n\
+          ▂▆███▇▍▏▂▇██▁▁▁▁▁▇██▄▏▏▃████▇\n\
+          ▁█████▂▁▃▅█▆    ▏▁██▅▉▉█████▆\n\
+          ▄█▄▅█▅▅▅▅▊▏      ▍▂▄▆▅██▋▃█\n\
+          ▄█▉▏▏  ▏▏             ▏▏▊██\n\
+      ▏  ▏▁▅▋▏                    ▏▏▋█▂▎   ▏\n\
+      ▎▏▉▆█▊▋▉▊▃▇▇▅▁▁▂▂▍ ▏▁▁▉▃▅▆▆▆▊▃▆██▇▂▎\n\
+      ▎▌▄▇▇▇████▂▇▄▄▇██▉ ▋█▇█▆▅▇██████▇▇▆▊ ▏\n\
+      ▎▍▉▍   ▏▉▉▅▅▂▉▄█▁▎  ▊▇██▄▂▆▉▉▌   ▏▉▋\n\
+      ▏  ▍▂▂▍    ▏▊▄█▄▏    ▉█▆▉▍    ▎▉▁▋▏  ▏\n\
+          ▎▋▊▊▊▌  ▏▁▄     ▋▅▎  ▍▌▊▊▉▎\n\
+              ▍▋▊▉▉▎▌▏▋▋▋▏▍▋▌▁▉▉▍▏\n\
+                  ▏▋▃▎▏▆██▌▏▁▉\n\
+                    ▏▊▉▉▃▊▂▉▎\n\
+                      ▌▌▌▏
+      ;;
+    f)  # Option -f (MeshFox short-form license)
+      echo "$meshfox_short_license"
+      ;;
+    F)  # Option -F (MeshFox long-form license)
+      echo "$(cat /usr/share/doc/meshfox/long_license)"
+      ;;
+    p)  # Option -p (pyMC_Repeater licensing)
+      echo "$pymc_repeater_license"
+      ;;
+    l) # Option -l (Luckfox license)
+      echo "$luckfox_license"
+      ;;
+    u) # Option -u (Ubuntu licenses)
+      echo "$ubuntu_license"
+      ;;
+    \?)  # Invalid option)
+      echo "Invalid option: -$OPTARG"
+      echo -e "$help"
+      exit 1
+      ;;
+  esac
+done
+
+# if no arguments, show all licenses
+if [ $# -eq 0 ]; then
+  echo "$meshfox_short_license"
+  pause
+  echo "$(cat /usr/share/doc/meshfox/long_license)"
+  pause
+  echo "$pymc_repeater_license"
+  pause
+  echo "$luckfox_license"
+  pause
+  eval "$ubuntu_license"
+  pause
+fi

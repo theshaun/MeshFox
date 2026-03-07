@@ -1,0 +1,435 @@
+#!/bin/bash
+# prevents weirdness over tty
+export NCURSES_NO_UTF8_ACS=1
+export TERM=xterm-256color
+export LANG=C.UTF-8
+
+if [[ $EUID -ne 0 ]]; then
+  echo "This script must be run as root."
+  echo "Try \`sudo meshfox-config\`."
+  exit 1
+fi
+
+# pause
+pause() {
+  echo "Press any key to continue..."
+  read -n 1 -s -r
+}
+
+loading() {
+  dialog --no-collapse --infobox "$1" 5 45
+}
+
+
+# function to pull data from various meshfox scripts and convert it a simple text string, with dialog colors
+ingest_data() { # usage: `ingest_data "command.sh -argument" key_width`
+  local output_string=""
+  # Read the output from meshfox-meshtasticd-config.sh and store output_string
+  while IFS=':' read -r key value; do
+    key=$(meshfox-utils -R "$(echo "$key")")
+    value=$(meshfox-utils -R "$(echo "$value" | xargs)")    # Trim leading/trailing spaces from value
+    if [[ -z "$key" && -z "$value" ]]; then
+      output_string+="---\n"
+    else
+      output_string+=$(printf "%s:%*s%s\n" "$key" $(($2 - 1 - ${#key})) "" "$value\n") # save the key and value to the output_string, adding padding between them as determined by `$2 - 1 - key-length` The 1 accounts for the :
+    fi
+  done < <(eval $1)
+  echo -e "$output_string"
+}
+
+service_manager() {
+  choice=""   # zero the choice before loading the submenu
+  while true; do
+    local service_name=$1
+    local readable_name=$2
+    local help=$3
+    echo "Checking $readable_name service state..."
+    local service_state="$(meshfox-utils -R "$(meshfox-utils -C "$service_name")")"
+    choice=$(dialog --no-collapse --colors --help-button --cancel-label "Back" --title "$readable_name Service" --default-item "$choice" --menu "Service is $service_state" 16 60 5 \
+      "View detailed service status" "x" \
+      " " "" \
+      "Start/restart service" "x" \
+      $(if ! echo "$service_state" | grep -q 'not running'; then echo "Stop service x"; fi) \
+      " " "" \
+      $(if echo "$service_state" | grep -q 'disabled'; then echo "Enable service x"; fi) \
+      $(if echo "$service_state" | grep -q 'enabled'; then echo "Disable service x"; fi) \
+      " " "" \
+      "Back to previous menu" "x" 3>&1 1>&2 2>&3)
+    exit_status=$? # This line checks the exit status of the dialog command
+    if [ $exit_status -eq 1 ]; then # Exit the loop if the user selects "Cancel" or closes the dialog
+      break
+    elif [ $exit_status -eq 2 ]; then # Help ("extra") button
+      dialog --no-collapse --colors --title "$readable_name service help" --msgbox "$3" 0 0
+    else
+      case $choice in
+        "View detailed service status") 
+          echo "Getting $readable_name service status..."
+          dialog --no-collapse --title "$readable_name service status" --msgbox "$(systemctl status $service_name)" 0 0
+        ;;
+        "Start/restart service") 
+          dialog --no-collapse --title "$title" --yesno "Start/restart $readable_name service?" 7 45
+          if [ $? -eq 0 ]; then #unless cancel/no
+            systemctl restart $service_name
+            dialog --no-collapse --colors --msgbox "Sent \`\Zusystemctl restart $service_name\Zn\` command to system.\n\n$readable_name should be running." 10 60
+          fi
+        ;;
+        "Stop service")
+          dialog --no-collapse --colors --title "$title" --yesno "Stop $readable_name service?\n\nThis will take the node \Zu\Z1OFFLINE\Zn.\n\n$readable_name will automatically restart on boot service if enabled." 11 50
+          if [ $? -eq 0 ]; then #unless cancel/no
+            systemctl stop $service_name
+            dialog --no-collapse --colors --msgbox "Sent \`\Zusystemctl stop $service_name\Zn\` command to system.\n\n$readable_name should be stopped." 9 60
+          fi
+        ;;
+        "Enable service")
+          dialog --no-collapse --title "$title" --yesno "Enable $readable_name service?" 6 45
+          if [ $? -eq 0 ]; then #unless cancel/no
+            systemctl enable $service_name
+            systemctl start $service_name
+            dialog --no-collapse --colors --msgbox "Sent \`\Zusystemctl enable $service_name\Zn\` and \`\Zusystemctl start $service_name\Zn\` commands to system.\n\n$readable_name should be running." 10 60
+          fi
+        ;;
+        "Disable service")
+          dialog --no-collapse --colors --title "$title" --yesno "Disable $readable_name service?\n\nThis will take the node \Zu\Z1OFFLINE\Zn and will not restart!" 9 50
+          if [ $? -eq 0 ]; then #unless cancel/no
+            systemctl disable $service_name
+            systemctl stop $service_name
+            dialog --no-collapse --colors --msgbox "Sent \`\Zusystemctl disable $service_name\Zn\` and \`\Zusystemctl stop $service_name\Zn\` commands to system.\n\n$readable_name should be disabled and stopped." 10 60
+          fi
+        ;;
+        "Back to previous menu") break ;; 
+      esac
+    fi
+  done
+}
+
+wifi_config() {
+  local title2="Wi-Fi (wlan0) Settings"
+  local config=$(dialog --no-collapse --title "$title2" --form "↑ ↓ to navigate, [ESC] to cancel." 10 45 0 \
+              "SSID:" 1 1 "$(grep -oP '^ *ssid="\K[^"]+' /etc/wpa_supplicant/wpa_supplicant.conf)" 1 15 24 32\
+              "Password:" 2 1 "" 2 15 24 64\
+              "Country Code:" 3 1 "$(grep -oP '^ *country=\K[^ ]+' /etc/wpa_supplicant/wpa_supplicant.conf)" 3 15 24 2\
+              3>&1 1>&2 2>&3)
+  # Parse the output
+  wifi_ssid=$(echo "$config" | sed -n '1p')
+  wifi_psk=$(echo "$config" | sed -n '2p')
+  wifi_country=$(echo "$config" | sed -n '3p')
+
+  cmd="meshfox-network-config -s \"$wifi_ssid\" -p \"$wifi_psk\"" # build the wifi setting command to send to the network config script
+  [ -n "$wifi_country" ] && cmd="$cmd -c \"$wifi_country\""
+  cmd="$cmd -r"
+  if [ -z "$wifi_ssid" ]; then
+    dialog --no-collapse --title "$title2" --msgbox "\nSSID is required to configure Wi-Fi." 7 40
+    return
+  fi
+  echo "Configuring wifi..."
+  eval $cmd &>/dev/null
+  dialog --no-collapse --title "$title2" --msgbox "Wi-Fi Settings Saved:\nSSID: $wifi_ssid\nPassword: (hidden)\nCountry: $wifi_country\nMeshtastic Wi-Fi setting set to ON" 9 40
+  if [ "$1" = "-w" ]; then
+    exit 0
+  fi
+}
+
+# Function to handle Wi-Fi settings
+networking_settings() {
+  local title="Networking"
+  local title2="Wi-Fi (wlan0) Settings"
+  wpa_supplicant_conf="/etc/wpa_supplicant/wpa_supplicant.conf"
+  choice=""   # zero the choice before loading the submenu
+  while true; do
+    networking_choice=$(dialog --no-collapse --cancel-label "Back" --backtitle "IPv4 address:  $(meshfox-network-config -i)" --default-item "$networking_choice" --title "$title" --item-help --menu "" 17 40 4 \
+      1 "Turn Wi-Fi on/off" "" \
+      2 "View Wi-Fi settings" "" \
+      3 "Change Wi-Fi settings" "" \
+      4 "View ethernet settings" "" \
+      5 "Restart networking" "" \
+      6 "Set hostname" "" \
+      7 "Test internet connection" "" \
+      " " "" "" \
+      8 "Back to main menu" "" 3>&1 1>&2 2>&3)
+    [ $? -eq 1 ] && break # Exit the loop if the user selects "Cancel" or closes the dialog
+    case $networking_choice in
+      1) # Turn Wi-Fi on/off)
+        if ! ip link show wlan0 &>/dev/null; then
+          dialog --no-collapse --colors --msgbox "\Z1Network adapter wlan0 does not exist.\Zn\n\nIs a Wi-Fi adapter connected?" 8 40
+        else
+          while true; do
+            choice=$(dialog --no-collapse --cancel-label "Back" --default-item "$choice" --title "Enable/disable Wi-Fi" --item-help --menu "Tip: Wi-Fi can also be toggled by short-pressing the BOOT button on the Luckfox." 13 50 5 \
+              1 "Turn Wi-Fi on" "" \
+              2 "Turn Wi-Fi off" "" \
+              " " "" "" \
+              3 "Return to previous menu" "" 3>&1 1>&2 2>&3)
+            [ $? -eq 1 ] && break # Exit the loop if the user selects "Cancel" or closes the dialog
+            case $choice in
+              1) femto-network-config.sh -x "up" && break ;;
+              2) femto-network-config.sh -x "down" && break ;;
+              3) break ;;
+            esac
+          done
+        fi
+      ;;
+      2) # View Wi-Fi settings)
+        echo "Getting Wi-Fi configuration..."
+        dialog --no-collapse --title "$title2" --colors --msgbox "$(ingest_data "meshfox-network-config -w" 15)" 0 0
+      ;;
+      3) # Change Wi-Fi settings)
+        wifi_config
+      ;;
+      4) # View ethernet settings)
+        echo "Getting ethernet configuration..."
+        dialog --no-collapse --title "Ethernet (eth0) settings" --colors --msgbox "$(ingest_data "meshfox-network-config -e" 15)" 0 0
+      ;;
+      5) # Restart networking)
+        dialog --no-collapse --title "$title2" --yesno "Wi-Fi and Ethernet will be restarted.\nMeshtastic Wi-Fi setting will be set to ON.\n\nProceed?" 10 40
+        if [ $? -eq 0 ]; then #unless cancel/no
+          meshfox-network-config -r
+        fi
+      ;;
+      6) # set hostname)
+        new_hostname=$(dialog --no-collapse --title "$title" --max-input 253 --inputbox "Enter new hostname:" 8 40 $(hostname) 3>&1 1>&2 2>&3)
+        if [ $? -eq 0 ]; then #unless cancel/no
+          meshfox-network-config -n "$new_hostname"
+          dialog --no-collapse --title "$title" --msgbox "MeshFox is now reachable at\n$new_hostname.local" 8 40
+        fi
+      ;;
+      7) # Test internet connection)
+        loading "Testing internet connection..."
+        dialog --no-collapse --title "Internet connectivity test" --colors --msgbox "$(meshfox-utils -R "$(meshfox-network-config -t)")" 9 40
+      ;;      
+      8)
+        return
+      ;;
+    esac
+  done
+}
+
+# utilities
+utilities() {
+  local title="Utilities & Tools"
+  while true; do
+    utilities_choice=$(dialog --no-collapse --cancel-label "Back" --default-item "$utilities_choice" --item-help --menu "$title" 21 50 4 \
+      1 "View system info" "" \
+      2 "Set system time" "" \
+      3 "Re-run first-boot script" "" \
+      4 "Run OEM luckfox-config" "" \
+      5 "Process viewer/manager" "" \
+      6 "Disable/enable logging" "" \
+      7 "Disable/enable activity LED" "" \
+      8 "Reboot" "" \
+      9 "Shutdown" "" \
+      " " "" "" \
+      10 "Back to main menu" "" 3>&1 1>&2 2>&3)
+    [ $? -eq 1 ] && break # Exit the loop if the user selects "Cancel" or closes the dialog
+    
+    case $utilities_choice in
+      1) #sysinfo)
+        sysinfo_choice=""   # zero the choice before loading the submenu
+        while true; do
+        echo $sysinfo_choice
+          sysinfo_choice=$(dialog --no-collapse --help-button --backtitle "$(meshfox-utils -v)" --cancel-label "Back" --default-item "$sysinfo_choice" --item-help --menu "System info" 17 40 5 \
+            1 "Operating system" "" \
+            2 "CPU" "" \
+            3 "Storage & memory" "" \
+            4 "Peripherals & devices" ""\
+            5 "Networking" "" \
+            6 "Complete system info" "" \
+            " " "" "" \
+            7 "Back to previous menu" "" 3>&1 1>&2 2>&3)
+          exit_status=$? # This line checks the exit status of the dialog command
+          if [ $exit_status -eq 1 ]; then # Exit the loop if the user selects "Cancel" or closes the dialog
+            break
+          elif [ $exit_status -eq 2 ]; then # Help ("extra") button
+            dialog --no-collapse --colors --title "System info help" --msgbox "To get system info in terminal (where it can be copied), enter \`\Zusudo meshfox-utils -i\Zn\`.\n\nWhen getting Peripherals & Devices Info (or Complete System Info) without an i2c device connected, it is normal to see error messages on serial console.\n" 0 0
+          else
+            case $sysinfo_choice in
+              1) # Operating system)
+                loading "Loading operating system info..."
+                dialog --no-collapse --colors --title "Operating system info" --msgbox "$(ingest_data "meshfox-utils -o" 15)" 0 0
+              ;;
+              2) # CPU)
+                loading "Loading CPU info..."
+                dialog --no-collapse --colors --title "CPU info" --msgbox "$(ingest_data "meshfox-utils -c" 15)" 0 0
+              ;;
+              3) # Storage & memory)
+                loading "Loading storage & memory info..."
+                dialog --no-collapse --colors --title "Storage & memory info" --msgbox "$(ingest_data "meshfox-utils -S" 15)" 0 0
+              ;;
+              4) # Peripherals & devices)
+                loading "Loading peripherals & devices info..."
+                dialog --no-collapse --colors --title "Peripherals & devices info" --msgbox "$(ingest_data "meshfox-utils -p" 15)" 0 0
+              ;; 
+              5) # Networking)
+                loading "Loading networking info..."
+                dialog --no-collapse --colors --title "Networking info" --msgbox "$(ingest_data "meshfox-utils -n" 15)" 0 0
+              ;;
+              6) # Complete system info)
+                loading "Loading complete system info..."
+                dialog --no-collapse --colors --title "Complete system info" --msgbox "$(ingest_data "meshfox-utils -i" 15)" 0 0
+              ;;
+              7) break ;;
+            esac
+          fi
+        done
+      ;;
+      2) meshfox-set-time ;; # set timezone
+      3) meshfox-runonce.sh ;; # Re-run first-boot script      
+      4) luckfox-config ;;
+      5) htop ;;
+      6) # logging)
+        choice=""   # zero the choice before loading the submenu
+        while true; do
+          echo "Checking current logging status..."
+          choice=$(dialog --no-collapse --colors --title "Logging" --cancel-label "Back" --default-item "$choice" --item-help --menu "Before deploying a Femtofox, it is advisable to disable logging to reduce SD card wear.\nCurrent state: $(femto-utils.sh -R "$(femto-utils.sh -l "check")")" 14 50 2 \
+            1 "Enable (default)" "" \
+            2 "Disable" "" \
+            " " "" "" \
+            3 "Return to previous menu" "" 3>&1 1>&2 2>&3)
+          [ $? -eq 1 ] && break # Exit the loop if the user selects "Cancel" or closes the dialog
+          case $choice in
+            1) femto-utils.sh -l "enable" ;;
+            2) femto-utils.sh -l "disable" ;;
+            3) break ;;
+          esac
+        done
+      ;;
+      7) # activity LED)
+        choice=""   # zero the choice before loading the submenu
+        while true; do
+          echo "Checking current activity LED status..."
+          choice=$(dialog --no-collapse --colors --title "Logging" --cancel-label "Back" --default-item "$choice" --item-help --menu "Before deploying a Femtofox, it is advisable to disable the Activity LED to save power.\nCurrent state: $(femto-utils.sh -R "$(femto-utils.sh -a "check")")" 14 50 2 \
+            1 "Enable (default)" "" \
+            2 "Disable" "" \
+            " " "" "" \
+            3 "Return to previous menu" "" 3>&1 1>&2 2>&3)
+          [ $? -eq 1 ] && break # Exit the loop if the user selects "Cancel" or closes the dialog
+          case $choice in
+            1) femto-utils.sh -a "enable" ;;
+            2) femto-utils.sh -a "disable" ;;
+            3) break ;;
+          esac
+        done
+      ;;
+      8) # reboot)
+        dialog --no-collapse --title "$title" --yesno "Reboot now?\n\nTip: Reboot can also be triggered by long-pressing the BOOT button on the luckfox." 10 45
+        if [ $? -eq 0 ]; then #unless cancel/no
+          loading "Rebooting..."
+          femto-utils.sh -r
+        fi
+      ;;
+      9) # shutdown)
+        dialog --no-collapse --colors --title "$title" --yesno "Shut down now?\n\nTo power system back on, disconnect/reconnect power.\n\nThe system shutdown command prevents damage to the filesystem from power interrupts, but does not stop power consumption.\n\nTip: You can also shut down the Femtofox by pressing the BOOT button for 5 seconds or by running \`\Zusudo halt\Zn\`." 14 60
+        if [ $? -eq 0 ]; then #unless cancel/no
+          loading "Shutting down...\n\nPower consumption will not stop."
+          femto-utils.sh -s
+        fi
+      ;;
+      10) return ;;
+    esac
+  done
+}
+
+#Help menu
+help_menu() {
+  while true; do
+  local title="Help / About"
+    help_choice=$(dialog --no-collapse --cancel-label "Back" --default-item "$help_choice" --item-help --menu "$title" 0 0 7 \
+      1 "About MeshFox" "" \
+      2 "Display pinout" "" \
+      3 "MeshFox licensing info - short" "" \
+      4 "MeshFox licensing info - long" "" \
+      5 "pyMC_Repeater licensing info" "" \
+      6 "About Luckfox" "" \
+      7 "About Ubuntu" "" \
+      " " "" "" \
+      8 "Back to main menu" "" 3>&1 1>&2 2>&3)
+    [ $? -eq 1 ] && break # Exit the loop if the user selects "Cancel" or closes the dialog    
+    case $help_choice in
+      1) #About MeshFox)
+        dialog --no-collapse --title "About MeshFox" --default-item "$choice" --backtitle "$(meshfox-utils -v)" --msgbox "$(meshfox-license -a)" 18 65
+      ;;
+      2) #Display pinout)
+        choice=""   # zero the choice before loading the submenu
+        while true; do
+          choice=$(dialog --no-collapse --cancel-label "Back" --default-item "$choice" --item-help --menu "Pinouts" 15 40 5 \
+            1 "Femtofox Pro/CE" "" \
+            2 "Femtofox Zero" "" \
+            3 "Femtofox Tiny" "" \
+            4 "Luckfox Pico Mini" "" \
+            " " "" "" \
+            5 "Back to Help Menu" "" 3>&1 1>&2 2>&3)
+          [ $? -eq 1 ] && break # Exit the loop if the user selects "Cancel" or closes the dialog
+          case $choice in
+            1) dialog --no-collapse --title "Femtofox" --msgbox "$(meshfox-pinout -f)" 42 68 ;;
+            2) dialog --no-collapse --title "Femtofox Zero" --msgbox "$(meshfox-pinout -z)" 34 48 ;;
+            3) dialog --no-collapse --title "Femtofox Tiny" --msgbox "$(meshfox-pinout -t)" 38 70 ;;
+            4) dialog --no-collapse --title "Luckfox Pico Mini" --msgbox "$(meshfox-pinout -l)" 23 65 ;;
+            5) break ;;
+          esac
+        done
+      ;;
+      3) #MeshFox licensing info - short)
+        dialog --no-collapse --title "MeshFox license" --msgbox "$(meshfox-license -f)" 31 65
+      ;;
+      4) #MeshFox licensing info - long)
+        clear
+        meshfox-license -F
+        pause
+      ;;
+      5) #pyMC_Repeater licensing info)
+        dialog --no-collapse --title "pyMC_Repeater license" --msgbox "$(meshfox-license -m)" 0 0
+      ;;
+      6) #About Luckfox)
+        dialog --no-collapse --title "About Luckfox" --msgbox "$(meshfox-license -l)" 0 0
+      ;;
+      7) #About Ubuntu)
+        dialog --no-collapse --title "About Ubuntu" --msgbox "$(meshfox-license -u)" 0 0
+      ;;
+      8)
+        return
+      ;;
+    esac
+  done
+}
+
+# Parse options
+help="If script is run without arguments, femto-config menu will load.\n\
+Options are:\n\
+-h           This message\n\
+-w           Set Wi-Fi config menu\
+"
+while getopts ":hluLwc" opt; do
+  case ${opt} in
+    h) # Option -h (help)
+      echo -e $help
+    ;;
+    w) # Option -w (Wi-Fi config)
+      wifi_config
+    ;;
+    \?) # Unknown option)
+      echo -e "Unknown argument $1.\n$help"
+    ;;
+  esac
+done
+[ -n "$1" ] && exit # if there were arguments, exit before loading the menu
+
+# Main menu
+while true; do
+  main_menu_choice=$(dialog --no-collapse --cancel-label "Exit" --backtitle "$(meshfox-utils -v)" --default-item "$main_menu_choice" --item-help --menu "MeshFox Config" 16 40 5 \
+    1 "Settings wizard" "" \
+    2 "Networking" "" \
+    4 "pyMC Repeater (Meshcore)" "" \
+    6 "Utilities & tools" "" \
+    7 "Help" "" \
+    " " "" "" \
+    8 "Exit" "" 3>&1 1>&2 2>&3)
+  [ $? -eq 1 ] && break # Exit the loop if the user selects "Cancel" or closes the dialog
+  case $main_menu_choice in
+    1) meshfox-install-wizard ;;
+    2) networking_settings ;;
+    4) /opt/pymc_repeater/manage.sh ;;
+    6) utilities ;;
+    7) help_menu ;;
+    8) break ;;
+  esac
+done
+
+exit 0
