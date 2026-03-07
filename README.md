@@ -9,3 +9,7 @@ MeshFox focuses on expanding functionality to Luckfox based boards such as the [
  - [ ] Add support for Luckfox Lyra Boards
  - [ ] Add support for Luckfox Core3306 Boards
  - [ ] Automate builds for different boards
+
+
+                                                                                                    
+<img width="259" height="213" alt="image" src="https://github.com/user-attachments/assets/140d4cda-40ef-43ab-857f-cc07d7f03956" />
