@@ -1,0 +1,43 @@
+{
+  "hardware": {
+      "ultrapeater-e22": {
+      "name": "Zindello Industries UltraPeater E22",
+      "bus_id": 0,
+      "cs_id": 0,
+      "cs_pin": 16,
+      "reset_pin": 22,
+      "busy_pin": 11,
+      "irq_pin": 10,
+      "txen_pin": 20,
+      "rxen_pin": 21,
+      "txled_pin": 8,
+      "rxled_pin": 1,
+      "tx_power": 22,
+      "use_dio2_rf": false,
+      "use_dio3_tcxo": true,
+      "preamble_length": 17,
+      "use_gpiod_backend": true,
+      "gpio_chip": 1
+    },
+      "ultrapeater-e22p": {
+      "name": "Zindello Industries UltraPeater E22P",
+      "bus_id": 0,
+      "cs_id": 0,
+      "cs_pin": 16,
+      "reset_pin": 22,
+      "busy_pin": 11,
+      "irq_pin": 10,
+      "txen_pin": 20,
+      "rxen_pin": -1,
+      "en_pin": 21,
+      "txled_pin": 8,
+      "rxled_pin": 1,
+      "tx_power": 22,
+      "use_dio2_rf": false,
+      "use_dio3_tcxo": true,
+      "preamble_length": 17,
+      "use_gpiod_backend": true,
+      "gpio_chip": 1
+    }
+  }
+}
