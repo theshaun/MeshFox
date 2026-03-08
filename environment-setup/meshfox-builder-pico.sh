@@ -28,6 +28,37 @@ fi
 
 sudoer=$(echo $SUDO_USER)
 
+################ BOARD CONFIGURATION ################
+# Define board-specific settings here
+declare -A BOARD_CONFIG
+
+# Femtofox configuration
+BOARD_CONFIG[femtofox_title]="Femtofox Board"
+BOARD_CONFIG[femtofox_rootfs_path]="rootfs_uclibc_rv1106"
+BOARD_CONFIG[femtofox_kernel_version]="5.10.160"
+BOARD_CONFIG[femtofox_chroot_script]="/home/${sudoer}/MeshFox/environment-setup/meshfox-femtofox.chroot"
+BOARD_CONFIG[femtofox_defconfig]="femtofox_rv1106_linux_defconfig"
+BOARD_CONFIG[femtofox_board_config]="BoardConfig-SD_CARD-Ubuntu-RV1103_Luckfox_Pico_Mini-IPC.mk"
+
+# Luckfox Pico Ultra configuration
+BOARD_CONFIG[pico-ultra_title]="Luckfox Pico Ultra"
+BOARD_CONFIG[pico-ultra_rootfs_path]="rootfs_uclibc_rv1106"
+BOARD_CONFIG[pico-ultra_kernel_version]="5.10.160"
+BOARD_CONFIG[pico-ultra_chroot_script]="/home/${sudoer}/MeshFox/environment-setup/meshfox-pico-ultra.chroot"
+BOARD_CONFIG[pico-ultra_defconfig]="luckfox_rv1106_linux_defconfig"
+BOARD_CONFIG[pico-ultra_board_config]="BoardConfig-EMMC-Ubuntu-RV1106_Luckfox_Pico_Ultra-IPC.mk"
+
+# Default board (can be overridden by command line or environment variable)
+TARGET_BOARD="${TARGET_BOARD:-femtofox}"
+
+# Function to get board-specific config value
+get_board_config() {
+  local key="${TARGET_BOARD}_${1}"
+  echo "${BOARD_CONFIG[$key]}"
+}
+
+###################################################
+
 # Check if 'dialog' is installed, install it if missing
 if ! command -v dialog &> /dev/null; then
   echo "The 'dialog' package is required to run this script. Press any key to install it."
@@ -72,9 +103,7 @@ clone_repos() {
 
 build_env() {
   echo "Setting up SDK env..."
-  echo "When the menu appears to choose your board choose Luckfox Pico Mini (1), SDCard (0) and Ubuntu (1)."
-  echo "Press any key to continue building the environment..."
-  read -n 1 -s -r
+  cp /home/${sudoer}/luckfox-pico/project/cfg/BoardConfig_IPC/$(get_board_config board_config) /home/${sudoer}/luckfox-pico/.BoardConfig.mk
   cd /home/${sudoer}/luckfox-pico
   ./build.sh env
 }
@@ -98,7 +127,7 @@ build_firmware() {
 }
 
 sync_meshfox_changes() {
-  SOURCE_DIR=/home/${sudoer}/meshfox/meshfox
+  SOURCE_DIR=/home/${sudoer}/MeshFox/meshfox
   DEST_DIR=/home/${sudoer}/luckfox-pico
 
   cd "$SOURCE_DIR" || exit
@@ -108,9 +137,9 @@ sync_meshfox_changes() {
   git ls-files > /tmp/source_files.txt
 
   echo "Merging in MeshFox modifications..."
-  rsync -aHAXv --progress --keep-dirlinks --itemize-changes /home/${sudoer}/meshfox/meshfox/sysdrv/ /home/${sudoer}/luckfox-pico/sysdrv/
-  rsync -aHAXv --progress --keep-dirlinks --itemize-changes /home/${sudoer}/meshfox/meshfox/project/ /home/${sudoer}/luckfox-pico/project/
-  rsync -aHAXv --progress --keep-dirlinks --itemize-changes /home/${sudoer}/meshfox/meshfox/output/image/ /home/${sudoer}/luckfox-pico/output/image/
+  rsync -aHAXv --progress --keep-dirlinks --itemize-changes /home/${sudoer}/MeshFox/meshfox/sysdrv/ /home/${sudoer}/luckfox-pico/sysdrv/
+  rsync -aHAXv --progress --keep-dirlinks --itemize-changes /home/${sudoer}/MeshFox/meshfox/project/ /home/${sudoer}/luckfox-pico/project/
+  rsync -aHAXv --progress --keep-dirlinks --itemize-changes /home/${sudoer}/MeshFox/meshfox/output/image/ /home/${sudoer}/luckfox-pico/output/image/
 
   while read -r file; do
       src_file="$SOURCE_DIR/$file"
@@ -141,37 +170,41 @@ modify_kernel() {
   echo "After making kernel configuration changes, make sure to save as .config (default) before exiting."
   echo "Press any key to continue building the kernel..."
   read -n 1 -s -r
+  
+  local kernel_version=$(get_board_config kernel_version)
+  local rootfs_path=$(get_board_config rootfs_path)
+  
   cd /home/${sudoer}/luckfox-pico
   ./build.sh kernelconfig
   ./build.sh kernel
   build_rootfs
   build_firmware
-  cp /home/${sudoer}/luckfox-pico/sysdrv/out/kernel_drv_ko/* /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/lib/modules/5.10.160/
+  cp /home/${sudoer}/luckfox-pico/sysdrv/out/kernel_drv_ko/* /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path}/lib/modules/${kernel_version}/
   echo "Entering chroot..."
-  mount --bind /proc /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/proc
-  mount --bind /sys /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/sys
-  mount --bind /dev /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/dev
-  mount --bind /dev/pts /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/dev/pts
-  chroot /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106 /bin/bash <<EOF
+  mount --bind /proc /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path}/proc
+  mount --bind /sys /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path}/sys
+  mount --bind /dev /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path}/dev
+  mount --bind /dev/pts /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path}/dev/pts
+  chroot /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path} /bin/bash <<EOF
 echo "Inside chroot environment..."
 echo "Setting up kernel modules..."
-depmod -a 5.10.160
+depmod -a ${kernel_version}
 echo "Cleaning up chroot..."
 apt clean && rm -rf /var/lib/apt/lists/* && rm -rf /tmp/* && rm -rf /var/tmp/* && find /var/log -type f -exec truncate -s 0 {} + && : > /root/.bash_history && history -c
 exit
 EOF
 
-  umount /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/dev/pts
-  umount /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/proc
-  umount /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/sys
-  umount /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/dev
+  umount /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path}/dev/pts
+  umount /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path}/proc
+  umount /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path}/sys
+  umount /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path}/dev
   build_rootfs
   build_firmware
   create_image
 }
 
 rebuild_chroot() {
-  chroot_script=${CHROOT_SCRIPT:-/home/${sudoer}/meshfox/environment-setup/meshfox-core.chroot}
+  chroot_script=${CHROOT_SCRIPT:-$(get_board_config chroot_script)}
   if [[ ! -f $chroot_script ]]; then
     echo "Error: Chroot script $chroot_script not found."
     exit 1
@@ -182,10 +215,10 @@ rebuild_chroot() {
   cd /home/${sudoer}/luckfox-pico
   ./build.sh clean rootfs
   cd /home/${sudoer}/
-  rsync -aHAXv --progress --keep-dirlinks --itemize-changes /home/${sudoer}/meshfox/meshfox/sysdrv/ /home/${sudoer}/luckfox-pico/sysdrv/
-  rsync -aHAXv --progress --keep-dirlinks --itemize-changes /home/${sudoer}/meshfox/meshfox/project/ /home/${sudoer}/luckfox-pico/project/
+  rsync -aHAXv --progress --keep-dirlinks --itemize-changes /home/${sudoer}/MeshFox/meshfox/sysdrv/ /home/${sudoer}/luckfox-pico/sysdrv/
+  rsync -aHAXv --progress --keep-dirlinks --itemize-changes /home/${sudoer}/MeshFox/meshfox/project/ /home/${sudoer}/luckfox-pico/project/
   build_rootfs
-  rsync -aHAXv --progress --keep-dirlinks --itemize-changes /home/${sudoer}/meshfox/meshfox/sysdrv/out/rootfs/ /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/
+  rsync -aHAXv --progress --keep-dirlinks --itemize-changes /home/${sudoer}/MeshFox/meshfox/sysdrv/out/rootfs/ /home/${sudoer}/luckfox-pico/sysdrv/out/$(get_board_config rootfs_path)/
   build_firmware
   install_rootfs
   build_rootfs
@@ -194,30 +227,30 @@ rebuild_chroot() {
 }
 
 inject_chroot() {
-  chroot_script=${CHROOT_SCRIPT:-/home/${sudoer}/meshfox/environment-setup/meshfox-core.chroot}
+  chroot_script=${CHROOT_SCRIPT:-$(get_board_config chroot_script)}
   if [[ ! -f $chroot_script ]]; then
     echo "Error: Chroot script $chroot_script not found."
     exit 1
   fi
 
-  cp "$chroot_script" /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/tmp/chroot_script.sh
-  chmod +x /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/tmp/chroot_script.sh
+  cp "$chroot_script" /home/${sudoer}/luckfox-pico/sysdrv/out/$(get_board_config rootfs_path)/tmp/chroot_script.sh
+  chmod +x /home/${sudoer}/luckfox-pico/sysdrv/out/$(get_board_config rootfs_path)/tmp/chroot_script.sh
 
   echo "Press any key to continue entering chroot..."
   read -n 1 -s -r
 
   echo "Entering chroot and running commands..."
 
-  mount --bind /proc /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/proc
-  mount --bind /sys /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/sys
-  mount --bind /dev /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/dev
-  mount --bind /dev/pts /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/dev/pts
-  chroot /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106 /tmp/chroot_script.sh
-  umount /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/dev/pts
-  umount /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/proc
-  umount /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/sys
-  umount /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/dev
-  rm /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/tmp/chroot_script.sh
+  mount --bind /proc /home/${sudoer}/luckfox-pico/sysdrv/out/$(get_board_config rootfs_path)/proc
+  mount --bind /sys /home/${sudoer}/luckfox-pico/sysdrv/out/$(get_board_config rootfs_path)/sys
+  mount --bind /dev /home/${sudoer}/luckfox-pico/sysdrv/out/$(get_board_config rootfs_path)/dev
+  mount --bind /dev/pts /home/${sudoer}/luckfox-pico/sysdrv/out/$(get_board_config rootfs_path)/dev/pts
+  chroot /home/${sudoer}/luckfox-pico/sysdrv/out/$(get_board_config rootfs_path) /tmp/chroot_script.sh
+  umount /home/${sudoer}/luckfox-pico/sysdrv/out/$(get_board_config rootfs_path)/dev/pts
+  umount /home/${sudoer}/luckfox-pico/sysdrv/out/$(get_board_config rootfs_path)/proc
+  umount /home/${sudoer}/luckfox-pico/sysdrv/out/$(get_board_config rootfs_path)/sys
+  umount /home/${sudoer}/luckfox-pico/sysdrv/out/$(get_board_config rootfs_path)/dev
+  rm /home/${sudoer}/luckfox-pico/sysdrv/out/$(get_board_config rootfs_path)/tmp/chroot_script.sh
   build_rootfs
   build_firmware
   create_image
@@ -227,7 +260,7 @@ inject_chroot() {
 update_image() {
   build_env
   echo "Updating repo..."
-  cd /home/${sudoer}/meshfox
+  cd /home/${sudoer}/MeshFox
   git pull
   cd /home/${sudoer}/
   sync_meshfox_changes
@@ -243,7 +276,7 @@ full_rebuild() {
   sync_meshfox_changes
   build_kernelconfig
   build_rootfs
-  rsync -aHAXv --progress --keep-dirlinks --itemize-changes /home/${sudoer}/meshfox/meshfox/sysdrv/out/rootfs/ /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/
+  rsync -aHAXv --progress --keep-dirlinks --itemize-changes /home/${sudoer}/MeshFox/meshfox/sysdrv/out/rootfs/ /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/
   build_firmware
   install_rootfs
   build_rootfs
@@ -255,32 +288,34 @@ install_rootfs() {
   echo "Modifying rootfs..."
   cd /home/${sudoer}/luckfox-pico/output/image
   echo "Copying kernel modules..."
-  mkdir -p /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/lib/modules/5.10.160
-  cp /home/${sudoer}/luckfox-pico/sysdrv/out/kernel_drv_ko/* /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/lib/modules/5.10.160/
+  local kernel_version=$(get_board_config kernel_version)
+  local rootfs_path=$(get_board_config rootfs_path)
+  mkdir -p /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path}/lib/modules/${kernel_version}
+  cp /home/${sudoer}/luckfox-pico/sysdrv/out/kernel_drv_ko/* /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path}/lib/modules/${kernel_version}/
   which qemu-arm-static
 
-  chroot_script=${CHROOT_SCRIPT:-/home/${sudoer}/meshfox/environment-setup/meshfox-core.chroot}
+  chroot_script=${CHROOT_SCRIPT:-$(get_board_config chroot_script)}
   if [[ ! -f $chroot_script ]]; then
     echo "Error: Chroot script $chroot_script not found."
     exit 1
   fi
 
-  cp "$chroot_script" /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/tmp/chroot_script.sh
-  chmod +x /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/tmp/chroot_script.sh
+  cp "$chroot_script" /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path}/tmp/chroot_script.sh
+  chmod +x /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path}/tmp/chroot_script.sh
 
   echo "Entering chroot and running commands..."
-  cp /usr/bin/qemu-arm-static /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/usr/bin/
-  mount --bind /proc /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/proc
-  mount --bind /sys /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/sys
-  mount --bind /dev /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/dev
-  mount --bind /dev/pts /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/dev/pts
-  chroot /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106 /tmp/chroot_script.sh
-  umount /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/dev/pts
-  umount /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/proc
-  umount /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/sys
-  umount /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/dev
+  cp /usr/bin/qemu-arm-static /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path}/usr/bin/
+  mount --bind /proc /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path}/proc
+  mount --bind /sys /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path}/sys
+  mount --bind /dev /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path}/dev
+  mount --bind /dev/pts /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path}/dev/pts
+  chroot /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path} /tmp/chroot_script.sh
+  umount /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path}/dev/pts
+  umount /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path}/proc
+  umount /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path}/sys
+  umount /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path}/dev
 
-  rm /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/tmp/chroot_script.sh
+  rm /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path}/tmp/chroot_script.sh
 }
 
 create_image() {
@@ -305,19 +340,19 @@ create_image() {
   #todo: output image name with datestamp and device type
 
   chmod +x /home/${sudoer}/luckfox-pico/output/image/blkenvflash
-  /home/${sudoer}/luckfox-pico/output/image/blkenvflash /home/${sudoer}/meshfox/meshfox-pico.img
+  /home/${sudoer}/luckfox-pico/output/image/blkenvflash /home/${sudoer}/MeshFox/meshfox-pico.img
   if [[ $? -eq 2 ]]; then echo "Error, sdcard img failed to build..."; exit 2; else echo "meshfox-pico.img build completed."; fi
-  ls -la /home/${sudoer}/meshfox/meshfox-pico.img
-  du -h /home/${sudoer}/meshfox/meshfox-pico.img
+  ls -la /home/${sudoer}/MeshFox/meshfox-pico.img
+  du -h /home/${sudoer}/MeshFox/meshfox-pico.img
 }
 
 sdk_install() {
   echo "Installing MeshFox SDK Disk Image Builder..."
-  if [ -d /home/${sudoer}/meshfox ]; then
-      echo "WARNING: ~/meshfox exists, this script will DESTROY and recreate it."
+  if [ -d /home/${sudoer}/MeshFox ]; then
+      echo "WARNING: ~/MeshFox exists, this script will DESTROY and recreate it."
       echo "Press Ctrl+C to cancel, or Enter to continue."
       read
-      rm -rf /home/${sudoer}/meshfox/meshfox
+      rm -rf /home/${sudoer}/MeshFox/meshfox
   fi
   if [ -d /home/${sudoer}/luckfox-pico ]; then
       echo "WARNING: ~/luckfox-pico exists, this script will DESTROY and recreate it."
@@ -339,7 +374,7 @@ sdk_install() {
   sync_meshfox_changes
   build_kernelconfig
   build_rootfs
-  rsync -aHAXv --progress --keep-dirlinks --itemize-changes /home/${sudoer}/meshfox/meshfox/sysdrv/out/rootfs/ /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/
+  rsync -aHAXv --progress --keep-dirlinks --itemize-changes /home/${sudoer}/MeshFox/meshfox/sysdrv/out/rootfs/ /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/
   build_firmware
   install_rootfs
   build_rootfs
@@ -357,22 +392,44 @@ usage() {
   echo "The following functions are available in this script:"
   echo "To install the development environment use the arg 'sdk_install' and is intended to be run ONCE only."
   echo "To modify the kernel and build an updated image use the arg 'modify_kernel'."
-  echo "To specify a custom chroot script use the arg '--chroot-script /full/path/to/custom.chroot'"
-  echo "other args: full_rebuild rebuild_chroot inject_chroot build_env sync_meshfox_changes build_kernelconfig install_rootfs build_rootfs build_uboot build_firmware create_image"
-  echo "Example:  sudo ~/foxbunto_env_setup.sh sdk_install"
-  echo "Example:  sudo ~/foxbunto_env_setup.sh --chroot-script /home/user/custom.chroot"
+  echo ""
+  echo "Options:"
+  echo "  --board <board_name>                Select target board (default: pico-mini). Available: pico-mini, pico-ultra"
+  echo "  --chroot-script <path>              Specify a custom chroot script"
+  echo ""
+  echo "Functions: full_rebuild rebuild_chroot inject_chroot build_env sync_meshfox_changes build_kernelconfig install_rootfs build_rootfs build_uboot build_firmware create_image"
+  echo ""
+  echo "Examples:"
+  echo "  sudo $0 sdk_install"
+  echo "  sudo $0 --board pico-mini full_rebuild"
+  echo "  sudo $0 --chroot-script /home/user/custom.chroot full_rebuild"
   exit 0
 }
 
 ################### MENU SYSTEM ###################
 
-if [[ "${1}" == "--chroot-script" ]]; then
-  CHROOT_SCRIPT=${2}
-  echo "CHROOT_SCRIPT is set to '${CHROOT_SCRIPT}'"
-  echo "Press any key to continue..."
-  read -n 1 -s -r
-  shift 2  # Remove --chroot-script and its argument from the arguments list
-fi
+# Parse command line options
+while [[ $# -gt 0 ]]; do
+  case "${1}" in
+    --board)
+      TARGET_BOARD="${2}"
+      echo "Target board set to: ${TARGET_BOARD}"
+      shift 2
+      ;;
+    --chroot-script)
+      CHROOT_SCRIPT="${2}"
+      echo "CHROOT_SCRIPT is set to '${CHROOT_SCRIPT}'"
+      shift 2
+      ;;
+    -h|--help|help)
+      usage
+      ;;
+    *)
+      # If it's not an option, it's a function name or invalid argument
+      break
+      ;;
+  esac
+done
 
 if [[ "${1}" =~ ^(-h|--help|h|help)$ ]]; then
   usage
@@ -383,9 +440,9 @@ elif [[ -z ${1} ]]; then
     exit 1
   fi
   while true; do
-    CHOICE=$(dialog --clear --no-cancel --backtitle "MeshFox SDK Builder" \
+    CHOICE=$(dialog --clear --no-cancel --backtitle "MeshFox SDK Builder: $(get_board_config title)" \
       --title "Main Menu" \
-      --menu "Choose an action:" 20 60 12 \
+      --menu "Choose an action for the $(get_board_config title):" 20 60 12 \
       1 "Full Image Rebuild" \
       2 "Get Image Updates" \
       3 "Modify Kernel Menu" \
