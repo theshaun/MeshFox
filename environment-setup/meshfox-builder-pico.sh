@@ -39,6 +39,7 @@ BOARD_CONFIG[femtofox_kernel_version]="5.10.160"
 BOARD_CONFIG[femtofox_chroot_script]="/home/${sudoer}/MeshFox/environment-setup/meshfox-femtofox.chroot"
 BOARD_CONFIG[femtofox_defconfig]="femtofox_rv1106_linux_defconfig"
 BOARD_CONFIG[femtofox_board_config]="BoardConfig-SD_CARD-Ubuntu-RV1103_Luckfox_Pico_Mini-IPC.mk"
+BOARD_CONFIG[femtofox_radio_settings]="femtofox-radio-settings.json"
 
 # Luckfox Pico Ultra configuration
 BOARD_CONFIG[pico-ultra_title]="Luckfox Pico Ultra"
@@ -47,6 +48,7 @@ BOARD_CONFIG[pico-ultra_kernel_version]="5.10.160"
 BOARD_CONFIG[pico-ultra_chroot_script]="/home/${sudoer}/MeshFox/environment-setup/meshfox-pico-ultra.chroot"
 BOARD_CONFIG[pico-ultra_defconfig]="luckfox_rv1106_linux_defconfig"
 BOARD_CONFIG[pico-ultra_board_config]="BoardConfig-EMMC-Ubuntu-RV1106_Luckfox_Pico_Ultra-IPC.mk"
+BOARD_CONFIG[pico-ultra_radio_settings]="pico-ultra-radio-settings.json"
 
 # Default board (can be overridden by command line or environment variable)
 TARGET_BOARD="${TARGET_BOARD:-femtofox}"
@@ -203,7 +205,8 @@ EOF
   create_image
 }
 
-rebuild_chroot() {
+rebuild_chroot() {  
+  cp /home/${sudoer}/MeshFox/environment-setup/distributables/radio-settings/$(get_board_config radio_settings) /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path}/var/lib/pymc_repeater/radio-settings-dist.json
   chroot_script=${CHROOT_SCRIPT:-$(get_board_config chroot_script)}
   if [[ ! -f $chroot_script ]]; then
     echo "Error: Chroot script $chroot_script not found."
@@ -226,7 +229,8 @@ rebuild_chroot() {
   create_image
 }
 
-inject_chroot() {
+inject_chroot() {  
+  cp /home/${sudoer}/MeshFox/environment-setup/distributables/radio-settings/$(get_board_config radio_settings) /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path}/var/lib/pymc_repeater/radio-settings-dist.json
   chroot_script=${CHROOT_SCRIPT:-$(get_board_config chroot_script)}
   if [[ ! -f $chroot_script ]]; then
     echo "Error: Chroot script $chroot_script not found."
@@ -293,6 +297,8 @@ install_rootfs() {
   mkdir -p /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path}/lib/modules/${kernel_version}
   cp /home/${sudoer}/luckfox-pico/sysdrv/out/kernel_drv_ko/* /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path}/lib/modules/${kernel_version}/
   which qemu-arm-static
+
+  cp /home/${sudoer}/MeshFox/environment-setup/distributables/radio-settings/$(get_board_config radio_settings) /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path}/var/lib/pymc_repeater/radio-settings-dist.json
 
   chroot_script=${CHROOT_SCRIPT:-$(get_board_config chroot_script)}
   if [[ ! -f $chroot_script ]]; then
