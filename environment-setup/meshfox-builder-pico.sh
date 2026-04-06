@@ -36,7 +36,7 @@ declare -A BOARD_CONFIG
 BOARD_CONFIG[femtofox_title]="Femtofox Board"
 BOARD_CONFIG[femtofox_rootfs_path]="rootfs_uclibc_rv1106"
 BOARD_CONFIG[femtofox_kernel_version]="5.10.160"
-BOARD_CONFIG[femtofox_chroot_script]="/home/${sudoer}/MeshFox/environment-setup/meshfox-femtofox.chroot"
+BOARD_CONFIG[femtofox_chroot_script]="/home/${sudoer}/meshfox/environment-setup/meshfox-femtofox.chroot"
 BOARD_CONFIG[femtofox_defconfig]="femtofox_rv1106_linux_defconfig"
 BOARD_CONFIG[femtofox_board_config]="BoardConfig-SD_CARD-Ubuntu-RV1103_Luckfox_Pico_Mini-IPC.mk"
 BOARD_CONFIG[femtofox_radio_settings]="femtofox-radio-settings.json"
@@ -45,7 +45,7 @@ BOARD_CONFIG[femtofox_radio_settings]="femtofox-radio-settings.json"
 BOARD_CONFIG[pico-ultra_title]="Luckfox Pico Ultra"
 BOARD_CONFIG[pico-ultra_rootfs_path]="rootfs_uclibc_rv1106"
 BOARD_CONFIG[pico-ultra_kernel_version]="5.10.160"
-BOARD_CONFIG[pico-ultra_chroot_script]="/home/${sudoer}/MeshFox/environment-setup/meshfox-pico-ultra.chroot"
+BOARD_CONFIG[pico-ultra_chroot_script]="/home/${sudoer}/meshfox/environment-setup/meshfox-pico-ultra.chroot"
 BOARD_CONFIG[pico-ultra_defconfig]="luckfox_rv1106_linux_defconfig"
 BOARD_CONFIG[pico-ultra_board_config]="BoardConfig-EMMC-Ubuntu-RV1106_Luckfox_Pico_Ultra-IPC.mk"
 BOARD_CONFIG[pico-ultra_radio_settings]="pico-ultra-radio-settings.json"
@@ -98,7 +98,7 @@ clone_repos() {
   }
 
   clone_with_retries "https://github.com/theshaun/luckfox-pico.git" || return 1
-  clone_with_retries "https://github.com/theshaun/MeshFox.git" || return 1
+  clone_with_retries "https://github.com/theshaun/meshfox.git" || return 1
 
   return 0
 }
@@ -129,7 +129,7 @@ build_firmware() {
 }
 
 sync_meshfox_changes() {
-  SOURCE_DIR=/home/${sudoer}/MeshFox/meshfox
+  SOURCE_DIR=/home/${sudoer}/meshfox/meshfox
   DEST_DIR=/home/${sudoer}/luckfox-pico
 
   cd "$SOURCE_DIR" || exit
@@ -139,9 +139,9 @@ sync_meshfox_changes() {
   git ls-files > /tmp/source_files.txt
 
   echo "Merging in MeshFox modifications..."
-  rsync -aHAXv --progress --keep-dirlinks --itemize-changes /home/${sudoer}/MeshFox/meshfox/sysdrv/ /home/${sudoer}/luckfox-pico/sysdrv/
-  rsync -aHAXv --progress --keep-dirlinks --itemize-changes /home/${sudoer}/MeshFox/meshfox/project/ /home/${sudoer}/luckfox-pico/project/
-  rsync -aHAXv --progress --keep-dirlinks --itemize-changes /home/${sudoer}/MeshFox/meshfox/output/image/ /home/${sudoer}/luckfox-pico/output/image/
+  rsync -aHAXv --progress --keep-dirlinks --itemize-changes /home/${sudoer}/meshfox/meshfox/sysdrv/ /home/${sudoer}/luckfox-pico/sysdrv/
+  rsync -aHAXv --progress --keep-dirlinks --itemize-changes /home/${sudoer}/meshfox/meshfox/project/ /home/${sudoer}/luckfox-pico/project/
+  rsync -aHAXv --progress --keep-dirlinks --itemize-changes /home/${sudoer}/meshfox/meshfox/output/image/ /home/${sudoer}/luckfox-pico/output/image/
 
   while read -r file; do
       src_file="$SOURCE_DIR/$file"
@@ -206,7 +206,7 @@ EOF
 }
 
 rebuild_chroot() {  
-  cp /home/${sudoer}/MeshFox/environment-setup/distributables/radio-settings/$(get_board_config radio_settings) /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path}/var/lib/pymc_repeater/radio-settings-dist.json
+  cp /home/${sudoer}/meshfox/environment-setup/distributables/radio-settings/$(get_board_config radio_settings) /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path}/var/lib/pymc_repeater/radio-settings-dist.json
   chroot_script=${CHROOT_SCRIPT:-$(get_board_config chroot_script)}
   if [[ ! -f $chroot_script ]]; then
     echo "Error: Chroot script $chroot_script not found."
@@ -218,10 +218,10 @@ rebuild_chroot() {
   cd /home/${sudoer}/luckfox-pico
   ./build.sh clean rootfs
   cd /home/${sudoer}/
-  rsync -aHAXv --progress --keep-dirlinks --itemize-changes /home/${sudoer}/MeshFox/meshfox/sysdrv/ /home/${sudoer}/luckfox-pico/sysdrv/
-  rsync -aHAXv --progress --keep-dirlinks --itemize-changes /home/${sudoer}/MeshFox/meshfox/project/ /home/${sudoer}/luckfox-pico/project/
+  rsync -aHAXv --progress --keep-dirlinks --itemize-changes /home/${sudoer}/meshfox/meshfox/sysdrv/ /home/${sudoer}/luckfox-pico/sysdrv/
+  rsync -aHAXv --progress --keep-dirlinks --itemize-changes /home/${sudoer}/meshfox/meshfox/project/ /home/${sudoer}/luckfox-pico/project/
   build_rootfs
-  rsync -aHAXv --progress --keep-dirlinks --itemize-changes /home/${sudoer}/MeshFox/meshfox/sysdrv/out/rootfs/ /home/${sudoer}/luckfox-pico/sysdrv/out/$(get_board_config rootfs_path)/
+  rsync -aHAXv --progress --keep-dirlinks --itemize-changes /home/${sudoer}/meshfox/meshfox/sysdrv/out/rootfs/ /home/${sudoer}/luckfox-pico/sysdrv/out/$(get_board_config rootfs_path)/
   build_firmware
   install_rootfs
   build_rootfs
@@ -230,7 +230,7 @@ rebuild_chroot() {
 }
 
 inject_chroot() {  
-  cp /home/${sudoer}/MeshFox/environment-setup/distributables/radio-settings/$(get_board_config radio_settings) /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path}/var/lib/pymc_repeater/radio-settings-dist.json
+  cp /home/${sudoer}/meshfox/environment-setup/distributables/radio-settings/$(get_board_config radio_settings) /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path}/var/lib/pymc_repeater/radio-settings-dist.json
   chroot_script=${CHROOT_SCRIPT:-$(get_board_config chroot_script)}
   if [[ ! -f $chroot_script ]]; then
     echo "Error: Chroot script $chroot_script not found."
@@ -264,7 +264,7 @@ inject_chroot() {
 update_image() {
   build_env
   echo "Updating repo..."
-  cd /home/${sudoer}/MeshFox
+  cd /home/${sudoer}/meshfox
   git pull
   cd /home/${sudoer}/
   sync_meshfox_changes
@@ -280,7 +280,7 @@ full_rebuild() {
   sync_meshfox_changes
   build_kernelconfig
   build_rootfs
-  rsync -aHAXv --progress --keep-dirlinks --itemize-changes /home/${sudoer}/MeshFox/meshfox/sysdrv/out/rootfs/ /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/
+  rsync -aHAXv --progress --keep-dirlinks --itemize-changes /home/${sudoer}/meshfox/meshfox/sysdrv/out/rootfs/ /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/
   build_firmware
   install_rootfs
   build_rootfs
@@ -298,7 +298,7 @@ install_rootfs() {
   cp /home/${sudoer}/luckfox-pico/sysdrv/out/kernel_drv_ko/* /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path}/lib/modules/${kernel_version}/
   which qemu-arm-static
 
-  cp /home/${sudoer}/MeshFox/environment-setup/distributables/radio-settings/$(get_board_config radio_settings) /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path}/var/lib/pymc_repeater/radio-settings-dist.json
+  cp /home/${sudoer}/meshfox/environment-setup/distributables/radio-settings/$(get_board_config radio_settings) /home/${sudoer}/luckfox-pico/sysdrv/out/${rootfs_path}/var/lib/pymc_repeater/radio-settings-dist.json
 
   chroot_script=${CHROOT_SCRIPT:-$(get_board_config chroot_script)}
   if [[ ! -f $chroot_script ]]; then
@@ -346,19 +346,19 @@ create_image() {
   #todo: output image name with datestamp and device type
 
   chmod +x /home/${sudoer}/luckfox-pico/output/image/blkenvflash
-  /home/${sudoer}/luckfox-pico/output/image/blkenvflash /home/${sudoer}/MeshFox/meshfox-pico.img
+  /home/${sudoer}/luckfox-pico/output/image/blkenvflash /home/${sudoer}/meshfox/meshfox-pico.img
   if [[ $? -eq 2 ]]; then echo "Error, sdcard img failed to build..."; exit 2; else echo "meshfox-pico.img build completed."; fi
-  ls -la /home/${sudoer}/MeshFox/meshfox-pico.img
-  du -h /home/${sudoer}/MeshFox/meshfox-pico.img
+  ls -la /home/${sudoer}/meshfox/meshfox-pico.img
+  du -h /home/${sudoer}/meshfox/meshfox-pico.img
 }
 
 sdk_install() {
   echo "Installing MeshFox SDK Disk Image Builder..."
-  if [ -d /home/${sudoer}/MeshFox ]; then
-      echo "WARNING: ~/MeshFox exists, this script will DESTROY and recreate it."
+  if [ -d /home/${sudoer}/meshfox ]; then
+      echo "WARNING: ~/meshfox exists, this script will DESTROY and recreate it."
       echo "Press Ctrl+C to cancel, or Enter to continue."
       read
-      rm -rf /home/${sudoer}/MeshFox/meshfox
+      rm -rf /home/${sudoer}/meshfox/meshfox
   fi
   if [ -d /home/${sudoer}/luckfox-pico ]; then
       echo "WARNING: ~/luckfox-pico exists, this script will DESTROY and recreate it."
@@ -380,7 +380,7 @@ sdk_install() {
   sync_meshfox_changes
   build_kernelconfig
   build_rootfs
-  rsync -aHAXv --progress --keep-dirlinks --itemize-changes /home/${sudoer}/MeshFox/meshfox/sysdrv/out/rootfs/ /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/
+  rsync -aHAXv --progress --keep-dirlinks --itemize-changes /home/${sudoer}/meshfox/meshfox/sysdrv/out/rootfs/ /home/${sudoer}/luckfox-pico/sysdrv/out/rootfs_uclibc_rv1106/
   build_firmware
   install_rootfs
   build_rootfs
